@@ -9,6 +9,29 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ============ CONFIGURACIÓN ============
+
+const API_KEY = process.env.API_KEY || "tu-clave-super-secreta-123";
+const INGRESO_TOTAL = parseFloat(process.env.INGRESO_TOTAL) || 17000000;
+
+// ============ FACTORES DE PONDERACIÓN ============
+
+const FACTORES = {
+  categoria: {
+    3: 1.50,  // Verde
+    2: 1.00,  // Amarilla
+    1: 0.75   // Roja
+  },
+  cv: {
+    true: 1.25,
+    false: 1.00
+  },
+  rp: {
+    true: 2.00,
+    false: 1.00
+  }
+};
+
 // ============ CONEXIÓN A BD ============
 
 const pool = new Pool({
@@ -19,34 +42,244 @@ const pool = new Pool({
     password: process.env.DB_PASSWORD
 });
 
-// ============ HOME ============
+// ============ SEGURIDAD ============
+
+function validarApiKey(req, res, next) {
+    const apiKey = req.headers["x-api-key"];
+    
+    if (!apiKey || apiKey !== API_KEY) {
+        return res.status(401).json({ 
+            success: false,
+            error: "API Key inválida o faltante" 
+        });
+    }
+    
+    next();
+}
+
+// ============ FUNCIONES DE CÁLCULO ============
+
+/**
+ * Calcula el factor (fc) para una combinación
+ */
+function calcularFactor(categoria, tieneCV, tieneRP) {
+  const catFactor = FACTORES.categoria[categoria] || 1.00;
+  const cvFactor = FACTORES.cv[tieneCV] || 1.00;
+  const rpFactor = FACTORES.rp[tieneRP] || 1.00;
+  
+  return catFactor * cvFactor * rpFactor;
+}
+
+/**
+ * Calcula la puntuación total del sistema
+ */
+async function calcularPuntuacionGlobal() {
+  try {
+    const resultado = await pool.query(`
+      SELECT p_cat1, p_cat2, p_cat3, cv, rp
+      FROM "Polinomica_si_final_octCorregida"
+    `);
+    
+    let puntuacionTotal = 0;
+    
+    resultado.rows.forEach(parcela => {
+      const cat1 = parseFloat(parcela.p_cat1) || 0;
+      const cat2 = parseFloat(parcela.p_cat2) || 0;
+      const cat3 = parseFloat(parcela.p_cat3) || 0;
+      const cv = parcela.cv === true;
+      const rp = parcela.rp === true;
+      
+      if (cat1 > 0) {
+        const factor = calcularFactor(1, cv, rp);
+        puntuacionTotal += cat1 * factor;
+      }
+      
+      if (cat2 > 0) {
+        const factor = calcularFactor(2, cv, rp);
+        puntuacionTotal += cat2 * factor;
+      }
+      
+      if (cat3 > 0) {
+        const factor = calcularFactor(3, cv, rp);
+        puntuacionTotal += cat3 * factor;
+      }
+    });
+    
+    return puntuacionTotal;
+    
+  } catch (error) {
+    console.error("Error calculando puntuación global:", error);
+    throw error;
+  }
+}
+
+/**
+ * Calcula beneficio completo para una parcela
+ */
+async function calcularBeneficioParcela(parcela, puntuacionGlobal) {
+  
+  const cca = parcela.cca || 'N/A';
+  const area_m2 = parseFloat(parcela.area_m2) || 0;
+  const area_ha = area_m2 / 10000;
+  
+  const p_cat1 = parseFloat(parcela.p_cat1) || 0;
+  const p_cat2 = parseFloat(parcela.p_cat2) || 0;
+  const p_cat3 = parseFloat(parcela.p_cat3) || 0;
+  const cv = parcela.cv === true;
+  const rp = parcela.rp === true;
+  const p_porc_bn = parseFloat(parcela.p_porc_bn) || 0;
+  
+  const esPequeno = area_ha <= 50;
+  
+  // ========== DISTRIBUCIÓN ==========
+  
+  const ingreso80 = INGRESO_TOTAL * 0.80;
+  const ingreso10 = INGRESO_TOTAL * 0.10;
+  const ingreso10reserva = INGRESO_TOTAL * 0.10;
+  
+  // ========== PAGO POR PUNTO ==========
+  
+  const pagoPorPunto = ingreso80 / puntuacionGlobal;
+  
+  // ========== CALCULAR DETALLES POR CATEGORÍA ==========
+  
+  let detallesCategorias = [];
+  let puntuacionParcela = 0;
+  let beneficio80Total = 0;
+  
+  // Categoría 1
+  if (p_cat1 > 0) {
+    const factor1 = calcularFactor(1, cv, rp);
+    const puntuacion1 = p_cat1 * factor1;
+    const imb1 = pagoPorPunto * factor1;
+    const beneficio1 = p_cat1 * imb1;
+    
+    puntuacionParcela += puntuacion1;
+    beneficio80Total += beneficio1;
+    
+    detallesCategorias.push({
+      categoria: 1,
+      superficie_ha: parseFloat(p_cat1.toFixed(2)),
+      factor: parseFloat(factor1.toFixed(4)),
+      puntuacion: parseFloat(puntuacion1.toFixed(2)),
+      imb: parseFloat(imb1.toFixed(2)),
+      beneficio: parseFloat(beneficio1.toFixed(2))
+    });
+  }
+  
+  // Categoría 2
+  if (p_cat2 > 0) {
+    const factor2 = calcularFactor(2, cv, rp);
+    const puntuacion2 = p_cat2 * factor2;
+    const imb2 = pagoPorPunto * factor2;
+    const beneficio2 = p_cat2 * imb2;
+    
+    puntuacionParcela += puntuacion2;
+    beneficio80Total += beneficio2;
+    
+    detallesCategorias.push({
+      categoria: 2,
+      superficie_ha: parseFloat(p_cat2.toFixed(2)),
+      factor: parseFloat(factor2.toFixed(4)),
+      puntuacion: parseFloat(puntuacion2.toFixed(2)),
+      imb: parseFloat(imb2.toFixed(2)),
+      beneficio: parseFloat(beneficio2.toFixed(2))
+    });
+  }
+  
+  // Categoría 3
+  if (p_cat3 > 0) {
+    const factor3 = calcularFactor(3, cv, rp);
+    const puntuacion3 = p_cat3 * factor3;
+    const imb3 = pagoPorPunto * factor3;
+    const beneficio3 = p_cat3 * imb3;
+    
+    puntuacionParcela += puntuacion3;
+    beneficio80Total += beneficio3;
+    
+    detallesCategorias.push({
+      categoria: 3,
+      superficie_ha: parseFloat(p_cat3.toFixed(2)),
+      factor: parseFloat(factor3.toFixed(4)),
+      puntuacion: parseFloat(puntuacion3.toFixed(2)),
+      imb: parseFloat(imb3.toFixed(2)),
+      beneficio: parseFloat(beneficio3.toFixed(2))
+    });
+  }
+  
+  // ========== BENEFICIO CUENTA 2.2 (PEQUEÑOS) ==========
+  
+  let beneficio10 = 0;
+  if (esPequeno) {
+    beneficio10 = ingreso10;
+  }
+  
+  // ========== BENEFICIO TOTAL ==========
+  
+  const beneficioTotal = beneficio80Total + beneficio10;
+  
+  return {
+    nomenclaturaCatastral: cca,
+    
+    superficies: {
+      total_ha: parseFloat(area_ha.toFixed(2)),
+      total_m2: parseFloat(area_m2.toFixed(2)),
+      categoria1_ha: parseFloat(p_cat1.toFixed(2)),
+      categoria2_ha: parseFloat(p_cat2.toFixed(2)),
+      categoria3_ha: parseFloat(p_cat3.toFixed(2))
+    },
+    
+    atributos: {
+      tieneCV: cv,
+      tieneRP: rp,
+      porcentajeBN: parseFloat(p_porc_bn.toFixed(2)),
+      esPequenoPropietario: esPequeno
+    },
+    
+    distribucion: {
+      ingresoTotal: parseFloat(INGRESO_TOTAL.toFixed(2)),
+      ingreso80Pct: parseFloat(ingreso80.toFixed(2)),
+      ingreso10Pct_Pequenos: parseFloat(ingreso10.toFixed(2)),
+      ingreso10Pct_Reserva: parseFloat(ingreso10reserva.toFixed(2))
+    },
+    
+    calculos: {
+      puntuacionGlobal: parseFloat(puntuacionGlobal.toFixed(2)),
+      puntuacionParcela: parseFloat(puntuacionParcela.toFixed(2)),
+      pagoPorPunto: parseFloat(pagoPorPunto.toFixed(4))
+    },
+    
+    beneficio: {
+      beneficioPor80Pct: parseFloat(beneficio80Total.toFixed(2)),
+      beneficioPor10Pct_Pequenos: parseFloat(beneficio10.toFixed(2)),
+      beneficioTotal: parseFloat(beneficioTotal.toFixed(2))
+    },
+    
+    detallesPorCategoria: detallesCategorias
+  };
+}
+
+// ============ ENDPOINTS ============
 
 app.get("/", (req, res) => {
     res.json({
-        mensaje: "API Simulador funcionando",
+        mensaje: "API Simulador JNR - Distribución de Beneficios",
+        version: "2.0",
+        ingresoTotal: INGRESO_TOTAL,
         endpoints: [
             "GET /tabla - Obtiene tabla completa",
-            "POST /calcular/:caso - Calcula por caso"
+            "POST /calcular - Calcula una parcela"
         ]
     });
 });
 
-// ============ ENDPOINT 1: OBTENER TABLA COMPLETA ============
-
-/**
- * GET /tabla
- * 
- * Devuelve: TODA la tabla sin filtros
- * Para: Earth Engine consume esta tabla
- */
-app.get("/tabla", async (req, res) => {
+app.get("/tabla", validarApiKey, async (req, res) => {
     try {
-        const consulta = `
-            SELECT *
-            FROM "Polinomica_si_final_octCorregida"
-        `;
-
-        const resultado = await pool.query(consulta);
+        const resultado = await pool.query(`
+            SELECT cca, p_cat1, p_cat2, p_cat3, cv, rp, area_m2, p_porc_bn 
+            FROM "Polinomica_si_final_octCorregida" 
+            ORDER BY cca
+        `);
 
         res.json({
             success: true,
@@ -55,107 +288,77 @@ app.get("/tabla", async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error en /tabla:", error);
+        console.error("Error:", error);
         res.status(500).json({
-            error: "Error al obtener tabla",
-            message: error.message
+            success: false,
+            error: error.message
         });
     }
 });
 
-// ============ ENDPOINT 2: CALCULAR POR CASO ============
-
-/**
- * POST /calcular/:caso
- * 
- * Recibe: caso (1-10)
- * Devuelve: Cálculo para todas las parcelas según ese caso
- */
-app.post("/calcular/:caso", async (req, res) => {
+app.post("/calcular", validarApiKey, async (req, res) => {
     try {
-        const { caso } = req.params;
+        const { nomenclaturaCatastral } = req.body;
 
-        // Validar caso
-        if (!caso || caso < 1 || caso > 10) {
+        if (!nomenclaturaCatastral) {
             return res.status(400).json({ 
-                error: "Caso debe ser entre 1 y 10" 
+                success: false,
+                error: "nomenclaturaCatastral requerida" 
             });
         }
 
-        const consulta = `
-            SELECT *
+        // Buscar parcela
+        const resultado = await pool.query(`
+            SELECT cca, p_cat1, p_cat2, p_cat3, cv, rp, area_m2, p_porc_bn
             FROM "Polinomica_si_final_octCorregida"
-        `;
+            WHERE cca = $1 LIMIT 1
+        `, [nomenclaturaCatastral]);
 
-        const resultado = await pool.query(consulta);
-        const registros = resultado.rows;
+        if (resultado.rows.length === 0) {
+            return res.status(404).json({ 
+                success: false,
+                error: `Parcela '${nomenclaturaCatastral}' no encontrada` 
+            });
+        }
 
-        // Calcular para cada registro según el caso
-        const calculados = registros.map(registro => {
-            return {
-                id: registro.id || registro.cca,
-                calculo: calcularSegunCaso(registro, parseInt(caso))
-            };
-        });
+        const parcela = resultado.rows[0];
+        
+        // Calcular puntuación global
+        const puntuacionGlobal = await calcularPuntuacionGlobal();
+        
+        // Calcular beneficio
+        const beneficio = await calcularBeneficioParcela(parcela, puntuacionGlobal);
 
         res.json({
             success: true,
-            caso: parseInt(caso),
-            cantidad: calculados.length,
-            datos: calculados
+            beneficio: beneficio,
+            timestamp: new Date().toISOString()
         });
 
     } catch (error) {
-        console.error("Error en /calcular:", error);
+        console.error("Error:", error);
         res.status(500).json({
-            error: "Error en cálculo",
-            message: error.message
+            success: false,
+            error: error.message
         });
     }
 });
 
-// ============ HEALTH CHECK ============
-
 app.get("/health", (req, res) => {
-    res.json({ 
-        status: "OK",
-        timestamp: new Date().toISOString()
-    });
+    res.json({ status: "OK", timestamp: new Date().toISOString() });
 });
-
-// ============ FUNCIÓN DE CÁLCULO ============
-
-/**
- * Calcula según el caso (1-10)
- * TODO: AQUÍ VAN LAS FÓRMULAS DE LOS 10 CASOS
- */
-function calcularSegunCaso(registro, caso) {
-    
-    // Por ahora: valores de ejemplo
-    // Después reemplazar con las fórmulas reales
-    
-    return {
-        beneficio_base: 13600000,
-        beneficio_total: 20400000,
-        tasa_anual: 7.5,
-        cuota_mensual: 405000,
-        caso: caso
-    };
-}
-
-// ============ INICIAR SERVIDOR ============
 
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
     console.log(`
-╔════════════════════════════════╗
-║   API de Cálculos              ║
-║   🚀 Puerto ${PORT}              ║
-╚════════════════════════════════╝
+╔═════════════════════════════════════╗
+║  API Cálculos JNR v2.0              ║
+║  🚀 Puerto ${PORT}                    ║
+║  💰 Ingreso: $${(INGRESO_TOTAL/1000000).toFixed(1)}M        ║
+║  📊 Distribución: 80/10/10          ║
+╚═════════════════════════════════════╝
     `);
-    console.log("Endpoints:");
-    console.log("  GET    /tabla");
-    console.log("  POST   /calcular/:caso");
-    console.log("  GET    /health");
 });
+
+module.exports = app;
