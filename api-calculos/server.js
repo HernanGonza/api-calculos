@@ -12,7 +12,8 @@ app.use(express.json());
 // ============ CONFIGURACIÓN ============
 
 const API_KEY = process.env.API_KEY || "tu-clave-super-secreta-123";
-const INGRESO_TOTAL = parseFloat(process.env.INGRESO_TOTAL) || 17000000;
+const INGRESO_TOTAL = parseFloat(process.env.INGRESO_TOTAL) || 17167500;
+const PUNTUACION_GLOBAL = 1540000; // Puntuación total provincial
 
 // ============ FACTORES DE PONDERACIÓN ============
 
@@ -71,46 +72,10 @@ function calcularFactor(categoria, tieneCV, tieneRP) {
 }
 
 /**
- * Calcula la puntuación total del sistema
+ * Retorna la puntuación global del sistema (constante)
  */
 async function calcularPuntuacionGlobal() {
-  try {
-    const resultado = await pool.query(`
-      SELECT p_cat1, p_cat2, p_cat3, cv, rp
-      FROM "Polinomica_si_final_octCorregida"
-    `);
-    
-    let puntuacionTotal = 0;
-    
-    resultado.rows.forEach(parcela => {
-      const cat1 = parseFloat(parcela.p_cat1) || 0;
-      const cat2 = parseFloat(parcela.p_cat2) || 0;
-      const cat3 = parseFloat(parcela.p_cat3) || 0;
-      const cv = parcela.cv === true;
-      const rp = parcela.rp === true;
-      
-      if (cat1 > 0) {
-        const factor = calcularFactor(1, cv, rp);
-        puntuacionTotal += cat1 * factor;
-      }
-      
-      if (cat2 > 0) {
-        const factor = calcularFactor(2, cv, rp);
-        puntuacionTotal += cat2 * factor;
-      }
-      
-      if (cat3 > 0) {
-        const factor = calcularFactor(3, cv, rp);
-        puntuacionTotal += cat3 * factor;
-      }
-    });
-    
-    return puntuacionTotal;
-    
-  } catch (error) {
-    console.error("Error calculando puntuación global:", error);
-    throw error;
-  }
+  return PUNTUACION_GLOBAL;
 }
 
 /**
