@@ -12,7 +12,7 @@ app.use(express.json());
 // ============ CONFIGURACIÓN ============
 
 const API_KEY = process.env.API_KEY || "tu-clave-super-secreta-123";
-const INGRESO_TOTAL = parseFloat(process.env.INGRESO_TOTAL) || 17167500;
+const INGRESO_TOTAL = parseFloat(process.env.INGRESO_TOTAL) || 17000000;
 const PUNTUACION_GLOBAL = 1540000; // Puntuación total provincial
 
 // ============ FACTORES DE PONDERACIÓN ============
@@ -76,6 +76,88 @@ function calcularFactor(categoria, tieneCV, tieneRP) {
  */
 async function calcularPuntuacionGlobal() {
   return PUNTUACION_GLOBAL;
+}
+
+/**
+ * Calcula el beneficio para pequeños propietarios (<= 50 ha)
+ * Basado en % de bosque nativo y agrupamiento por factor
+ */
+async function calcularBeneficioPequenos(porcBN, superficieBN) {
+  try {
+    console.log(`[PEQUEÑOS] Iniciando cálculo para porcBN=${porcBN}%, supBN=${superficieBN}ha`);
+    
+    // Obtener todas las parcelas pequeñas (≤ 50 ha)
+    const resultado = await pool.query(`
+      SELECT area_m2, p_porc_bn, p_cat1, p_cat2, p_cat3, cv, rp
+      FROM "Polinomica_si_final_octCorregida"
+      WHERE (area_m2 / 10000) <= 50
+    `);
+    
+    console.log(`[PEQUEÑOS] Total parcelas pequeñas encontradas: ${resultado.rows.length}`);
+    
+    // Agrupar por factor según % de BN
+    let supFc0 = 0;  // ≤ 50% BN → factor 0
+    let supFc1 = 0;  // 50-75% BN → factor 1
+    let supFc125 = 0; // > 75% BN → factor 1.25
+    
+    resultado.rows.forEach(parcela => {
+      const porcBNParcela = parseFloat(parcela.p_porc_bn) || 0;
+      const cat1 = parseFloat(parcela.p_cat1) || 0;
+      const cat2 = parseFloat(parcela.p_cat2) || 0;
+      const cat3 = parseFloat(parcela.p_cat3) || 0;
+      
+      const supBN = cat1 + cat2 + cat3;
+      
+      if (porcBNParcela > 75) {
+        supFc125 += supBN;
+      } else if (porcBNParcela > 50) {
+        supFc1 += supBN;
+      } else {
+        supFc0 += supBN;
+      }
+    });
+    
+    console.log(`[PEQUEÑOS] supFc0=${supFc0}, supFc1=${supFc1}, supFc125=${supFc125}`);
+    
+    // Calcular denominador ponderado
+    const denominador = supFc0 * 0 + supFc1 * 1 + supFc125 * 1.25;
+    
+    console.log(`[PEQUEÑOS] Denominador ponderado: ${denominador}`);
+    
+    if (denominador <= 0) {
+      console.log(`[PEQUEÑOS] Denominador es 0, retornando beneficio 0`);
+      return 0;
+    }
+    
+    // IMB pequeños
+    const ingreso10 = INGRESO_TOTAL * 0.10;
+    const imbPequenos = ingreso10 / denominador;
+    
+    console.log(`[PEQUEÑOS] Ingreso 10%: ${ingreso10}, IMB: ${imbPequenos}`);
+    
+    // Determinar factor de esta parcela según su % de BN
+    let factorParcela = 0;
+    if (porcBN > 75) {
+      factorParcela = 1.25;
+    } else if (porcBN > 50) {
+      factorParcela = 1;
+    } else {
+      factorParcela = 0;
+    }
+    
+    console.log(`[PEQUEÑOS] porcBN=${porcBN}% → factorParcela=${factorParcela}`);
+    
+    // Beneficio = superficie BN * IMB * factor
+    const beneficio = superficieBN * imbPequenos * factorParcela;
+    
+    console.log(`[PEQUEÑOS] Beneficio final: ${superficieBN} * ${imbPequenos} * ${factorParcela} = ${beneficio}`);
+    
+    return beneficio;
+    
+  } catch (error) {
+    console.error("Error calculando beneficio pequeños:", error);
+    return 0;
+  }
 }
 
 /**
@@ -176,7 +258,11 @@ async function calcularBeneficioParcela(parcela, puntuacionGlobal) {
   
   let beneficio10 = 0;
   if (esPequeno) {
-    beneficio10 = ingreso10;
+    // Calcular superficie total de BN
+    const superficieBN = p_cat1 + p_cat2 + p_cat3;
+    // Llamar a función que calcula correctamente según agrupamiento
+    beneficio10 = await calcularBeneficioPequenos(p_porc_bn, superficieBN);
+    console.log(`DEBUG: Parcela ${cca} - porcBN: ${p_porc_bn}%, supBN: ${superficieBN}, beneficio10: ${beneficio10}`);
   }
   
   // ========== BENEFICIO TOTAL ==========
