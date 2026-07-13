@@ -80,11 +80,15 @@ async function calcularPuntuacionGlobal() {
 
 /**
  * Calcula el beneficio para pequeños propietarios (<= 50 ha)
- * Basado en % de bosque nativo y agrupamiento por factor
+ * 
+ * Rangos de % de Bosque Nativo (p_porc_bn en formato decimal: 0.7735 = 77.35%):
+ * - ≤ 0.50 (50%): Factor 0 (NO califican)
+ * - > 0.50 y ≤ 0.75 (50-75%): Factor 1 (beneficio normal)
+ * - > 0.75 (>75%): Factor 1.25 (beneficio mayor)
  */
 async function calcularBeneficioPequenos(porcBN, superficieBN) {
   try {
-    console.log(`[PEQUEÑOS] Iniciando cálculo para porcBN=${porcBN}%, supBN=${superficieBN}ha`);
+    console.log(`[PEQUEÑOS] Iniciando cálculo para porcBN=${(porcBN*100).toFixed(2)}%, supBN=${superficieBN}ha`);
     
     // Obtener todas las parcelas pequeñas (≤ 50 ha)
     const resultado = await pool.query(`
@@ -96,9 +100,9 @@ async function calcularBeneficioPequenos(porcBN, superficieBN) {
     console.log(`[PEQUEÑOS] Total parcelas pequeñas encontradas: ${resultado.rows.length}`);
     
     // Agrupar por factor según % de BN
-    let supFc0 = 0;  // ≤ 50% BN → factor 0
-    let supFc1 = 0;  // 50-75% BN → factor 1
-    let supFc125 = 0; // > 75% BN → factor 1.25
+    // Solo cuentan las que tienen > 0.50 (50%) de BN
+    let supFc1 = 0;    // 0.50 < BN ≤ 0.75 (50-75%) → factor 1
+    let supFc125 = 0;  // BN > 0.75 (>75%) → factor 1.25
     
     resultado.rows.forEach(parcela => {
       const porcBNParcela = parseFloat(parcela.p_porc_bn) || 0;
@@ -108,49 +112,50 @@ async function calcularBeneficioPequenos(porcBN, superficieBN) {
       
       const supBN = cat1 + cat2 + cat3;
       
-      if (porcBNParcela > 75) {
+      // Solo contar si tiene > 0.50 (50%) de BN
+      if (porcBNParcela > 0.75) {
         supFc125 += supBN;
-      } else if (porcBNParcela > 50) {
+      } else if (porcBNParcela > 0.50) {
         supFc1 += supBN;
-      } else {
-        supFc0 += supBN;
       }
+      // Si porcBNParcela <= 0.50 NO se cuenta
     });
     
-    console.log(`[PEQUEÑOS] supFc0=${supFc0}, supFc1=${supFc1}, supFc125=${supFc125}`);
+    console.log(`[PEQUEÑOS] supFc1 (50-75% BN)=${supFc1.toFixed(2)} ha, supFc125 (>75% BN)=${supFc125.toFixed(2)} ha`);
     
-    // Calcular denominador ponderado
-    const denominador = supFc0 * 0 + supFc1 * 1 + supFc125 * 1.25;
+    // Calcular denominador ponderado (solo factor 1 y 1.25)
+    const denominador = supFc1 * 1 + supFc125 * 1.25;
     
-    console.log(`[PEQUEÑOS] Denominador ponderado: ${denominador}`);
+    console.log(`[PEQUEÑOS] Denominador ponderado: ${denominador.toFixed(2)}`);
     
     if (denominador <= 0) {
       console.log(`[PEQUEÑOS] Denominador es 0, retornando beneficio 0`);
       return 0;
     }
     
-    // IMB pequeños
+    // IMB pequeños = $1.7M / denominador
     const ingreso10 = INGRESO_TOTAL * 0.10;
     const imbPequenos = ingreso10 / denominador;
     
-    console.log(`[PEQUEÑOS] Ingreso 10%: ${ingreso10}, IMB: ${imbPequenos}`);
+    console.log(`[PEQUEÑOS] Ingreso 10%: $${ingreso10.toFixed(2)}, IMB: $${imbPequenos.toFixed(2)}/ha ponderado`);
     
     // Determinar factor de esta parcela según su % de BN
     let factorParcela = 0;
-    if (porcBN > 75) {
+    const porcBNPorcentaje = porcBN * 100;  // Convertir a porcentaje
+    if (porcBNPorcentaje > 75) {
       factorParcela = 1.25;
-    } else if (porcBN > 50) {
+    } else if (porcBNPorcentaje > 50) {
       factorParcela = 1;
     } else {
       factorParcela = 0;
     }
     
-    console.log(`[PEQUEÑOS] porcBN=${porcBN}% → factorParcela=${factorParcela}`);
+    console.log(`[PEQUEÑOS] porcBN=${porcBNPorcentaje.toFixed(2)}% → factorParcela=${factorParcela}`);
     
     // Beneficio = superficie BN * IMB * factor
     const beneficio = superficieBN * imbPequenos * factorParcela;
     
-    console.log(`[PEQUEÑOS] Beneficio final: ${superficieBN} * ${imbPequenos} * ${factorParcela} = ${beneficio}`);
+    console.log(`[PEQUEÑOS] Beneficio final: ${superficieBN.toFixed(2)} ha * $${imbPequenos.toFixed(2)} * ${factorParcela} = $${beneficio.toFixed(2)}`);
     
     return beneficio;
     
@@ -262,7 +267,6 @@ async function calcularBeneficioParcela(parcela, puntuacionGlobal) {
     const superficieBN = p_cat1 + p_cat2 + p_cat3;
     // Llamar a función que calcula correctamente según agrupamiento
     beneficio10 = await calcularBeneficioPequenos(p_porc_bn, superficieBN);
-    console.log(`DEBUG: Parcela ${cca} - porcBN: ${p_porc_bn}%, supBN: ${superficieBN}, beneficio10: ${beneficio10}`);
   }
   
   // ========== BENEFICIO TOTAL ==========
@@ -283,7 +287,7 @@ async function calcularBeneficioParcela(parcela, puntuacionGlobal) {
     atributos: {
       tieneCV: cv,
       tieneRP: rp,
-      porcentajeBN: parseFloat(p_porc_bn.toFixed(2)),
+      porcentajeBN: parseFloat((p_porc_bn * 100).toFixed(2)),
       esPequenoPropietario: esPequeno
     },
     
@@ -408,6 +412,7 @@ app.listen(PORT, () => {
 ║  🚀 Puerto ${PORT}                    ║
 ║  💰 Ingreso: $${(INGRESO_TOTAL/1000000).toFixed(1)}M        ║
 ║  📊 Distribución: 80/10/10          ║
+║  📊 Pequeños: 50-75%=1, >75%=1.25   ║
 ╚═════════════════════════════════════╝
     `);
 });
