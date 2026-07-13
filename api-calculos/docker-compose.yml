@@ -1,23 +1,26 @@
 version: '3.8'
 
 services:
-  api:
+  api-calculos:
     build: .
     container_name: jnr-api-calculos
     ports:
       - "3000:3000"
     environment:
       PORT: 3000
-      DB_HOST: ${DB_HOST}
-      DB_PORT: ${DB_PORT}
+      DB_HOST: db
+      DB_PORT: 5432
       DB_NAME: ${DB_NAME}
       DB_USER: ${DB_USER}
       DB_PASSWORD: ${DB_PASSWORD}
       API_KEY: ${API_KEY}
+      INGRESO_TOTAL: ${INGRESO_TOTAL}
       NODE_ENV: production
     networks:
       - jnr-network
     restart: unless-stopped
+    depends_on:
+      - db
 
 networks:
   jnr-network:

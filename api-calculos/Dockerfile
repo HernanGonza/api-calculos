@@ -7,8 +7,7 @@ COPY package*.json ./
 RUN npm install --production
 
 COPY server.js .
-COPY db.js .
 
 EXPOSE 3000
 
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
