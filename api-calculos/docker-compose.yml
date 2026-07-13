@@ -19,8 +19,6 @@ services:
     networks:
       - jnr-network
     restart: unless-stopped
-    depends_on:
-      - db
 
 networks:
   jnr-network:
