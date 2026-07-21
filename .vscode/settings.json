@@ -1,0 +1,15 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "10.0.0.244",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "Polinmomica",
+            "database": "postgisdb",
+            "username": "postgres",
+            "password": "wv/mmHN8cQF9rw=="
+        }
+    ]
+}
