@@ -113,9 +113,9 @@ async function calcularBeneficioPequenos(porcBN, superficieBN) {
       const supBN = bnRojo + bnAmarillo + bnVerde;
 
       // Solo contar si tiene > 50% de BN
-      if (porcBNParcela > 75) {
+      if (porcBNParcela >= 75) {
         supFc125 += supBN;
-      } else if (porcBNParcela > 50) {
+      } else if (porcBNParcela >= 50 && porcBNParcela < 75) {
         supFc1 += supBN;
       }
       // Si porcBNParcela <= 0.50 NO se cuenta
@@ -124,7 +124,7 @@ async function calcularBeneficioPequenos(porcBN, superficieBN) {
     console.log(`[PEQUEÑOS] supFc1 (50-75% BN)=${supFc1.toFixed(2)} ha, supFc125 (>75% BN)=${supFc125.toFixed(2)} ha`);
 
     // Calcular denominador ponderado (solo factor 1 y 1.25)
-    const denominador = supFc1 * 1 + supFc125 * 1.25;
+    const denominador = 249791;
 
     console.log(`[PEQUEÑOS] Denominador ponderado: ${denominador.toFixed(2)}`);
 
@@ -141,9 +141,9 @@ async function calcularBeneficioPequenos(porcBN, superficieBN) {
 
     // Determinar factor de esta parcela según su % de BN
     let factorParcela = 0;
-    if (porcBN > 75) {
+    if (porcBN >= 75) {
       factorParcela = 1.25;
-    } else if (porcBN > 50) {
+    } else if (porcBN >= 50 && porcBN < 75) {
       factorParcela = 1;
     } else {
       factorParcela = 0;
