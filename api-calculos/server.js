@@ -93,7 +93,7 @@ async function calcularBeneficioPequenos(porcBN, superficieBN) {
     // Obtener todas las parcelas pequeñas (≤ 50 ha)
     const resultado = await pool.query(`
       SELECT sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
-      FROM "beneficiariosJNR_2022_sinPeq"
+      FROM "beneficiarios_JNR_2022"
       WHERE sup_parcela_ha <= 50
     `);
 
@@ -333,7 +333,7 @@ app.get("/tabla", validarApiKey, async (req, res) => {
     try {
         const resultado = await pool.query(`
             SELECT cca, sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
-            FROM "beneficiariosJNR_2022_sinPeq"
+            FROM "beneficiarios_JNR_2022"
             ORDER BY cca
         `);
 
@@ -366,7 +366,7 @@ app.post("/calcular", validarApiKey, async (req, res) => {
         // Buscar parcela
         const resultado = await pool.query(`
             SELECT cca, sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
-            FROM "beneficiariosJNR_2022_sinPeq"
+            FROM "beneficiarios_JNR_2022"
             WHERE cca = $1 LIMIT 1
         `, [nomenclaturaCatastral]);
 
