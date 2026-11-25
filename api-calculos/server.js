@@ -92,9 +92,9 @@ async function calcularBeneficioPequenos(porcBN, superficieBN) {
 
     // Obtener todas las parcelas pequeñas (≤ 50 ha)
     const resultado = await pool.query(`
-      SELECT (COALESCE(cat1_ha_su,0) + COALESCE(cat2_ha_su,0) + COALESCE(cat3_ha_su,0)) AS sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
-      FROM "beneficiarios_JNR_2022"
-      WHERE (COALESCE(cat1_ha_su,0) + COALESCE(cat2_ha_su,0) + COALESCE(cat3_ha_su,0)) <= 50
+      SELECT sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
+      FROM "beneficiariosJNR_2022"
+      WHERE sup_parcela_ha <= 50
     `);
 
     console.log(`[PEQUEÑOS] Total parcelas pequeñas encontradas: ${resultado.rows.length}`);
@@ -332,8 +332,8 @@ app.get("/", (req, res) => {
 app.get("/tabla", validarApiKey, async (req, res) => {
     try {
         const resultado = await pool.query(`
-            SELECT cca, (COALESCE(cat1_ha_su,0) + COALESCE(cat2_ha_su,0) + COALESCE(cat3_ha_su,0)) AS sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
-            FROM "beneficiarios_JNR_2022"
+            SELECT cca, sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
+            FROM "beneficiariosJNR_2022"
             ORDER BY cca
         `);
 
@@ -365,8 +365,8 @@ app.post("/calcular", validarApiKey, async (req, res) => {
 
         // Buscar parcela
         const resultado = await pool.query(`
-            SELECT cca, (COALESCE(cat1_ha_su,0) + COALESCE(cat2_ha_su,0) + COALESCE(cat3_ha_su,0)) AS sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
-            FROM "beneficiarios_JNR_2022"
+            SELECT cca, sup_parcela_ha, porc_bn, bn_rem_rojo, bn_rem_amarillo, bn_rem_verde, "corredor_verde", "reserva_privada"
+            FROM "beneficiariosJNR_2022"
             WHERE cca = $1 LIMIT 1
         `, [nomenclaturaCatastral]);
 
